@@ -1,7 +1,6 @@
 #ifndef PC_DNS_PARSER_H
 #define PC_DNS_PARSER_H
 
-#include "PCTypes.h"
 #include "PCHeaders.h"
 
 namespace PacketCraft

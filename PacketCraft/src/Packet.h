@@ -7,6 +7,7 @@
 #include "PCTypes.h"
 
 #define PRINT_BUFFER_SIZE (IP_MAXPACKET * 4)
+#define PC_MAX_PACKET_SIZE (IP_MAXPACKET)
 
 namespace PacketCraft
 {
@@ -51,7 +52,7 @@ namespace PacketCraft
         inline int GetSizeInBytes() const { return sizeInBytes; }
         inline uint32_t GetNLayers() const { return nLayers; }
         
-        virtual int ProcessReceivedPacket(uint8_t* packet, int layerSize = 0, unsigned short nextHeader = PC_PROTO_ETH);
+        virtual int ProcessReceivedPacket(uint8_t* packet, int layerSize = 0, unsigned short protocol = PC_PROTO_ETH);
 
         protected:
         virtual void FreePacket();

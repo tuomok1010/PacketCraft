@@ -6,5 +6,6 @@
 #include "../PCHeaders.h"
 #include "../DNSParser.h"
 #include "../Packet.h"
+#include "../PacketFilterQueue.h"
 
 #endif

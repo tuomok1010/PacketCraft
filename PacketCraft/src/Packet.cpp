@@ -31,10 +31,10 @@ PacketCraft::Packet::Packet():
         layerInfos[i].end = nullptr;
     }
 
-    data = malloc(IP_MAXPACKET);
+    data = malloc(PC_MAX_PACKET_SIZE);
     start = (uint8_t*)data;
     end = (uint8_t*)data;
-    memset(data, 0, IP_MAXPACKET);
+    memset(data, 0, PC_MAX_PACKET_SIZE);
 
     printBuffer = (char*)malloc(PRINT_BUFFER_SIZE);
     memset(printBuffer, '\0', PRINT_BUFFER_SIZE);
@@ -53,7 +53,7 @@ PacketCraft::Packet::~Packet()
 
 void PacketCraft::Packet::operator = (const Packet& packet)
 {
-    this->data = malloc(IP_MAXPACKET);
+    this->data = malloc(PC_MAX_PACKET_SIZE);
     this->sizeInBytes = packet.sizeInBytes;
     this->nLayers = packet.nLayers;
     this->start = (uint8_t*)data;
@@ -95,7 +95,7 @@ int PacketCraft::Packet::AddLayer(const uint32_t layerType, const size_t layerSi
 // TODO: TEST
 void PacketCraft::Packet::DeleteLayer(const uint32_t layerIndex)
 {
-    uint8_t* newData = (uint8_t*)malloc(IP_MAXPACKET);
+    uint8_t* newData = (uint8_t*)malloc(PC_MAX_PACKET_SIZE);
     LayerInfo newLayerInfos[PC_MAX_LAYERS];
     uint32_t newSizeInBytes{0};
     uint32_t newNLayers{0};
