@@ -44,7 +44,7 @@
 
 static int queueCallback(const nlmsghdr *nlh, void *data)
 {
-    std::cout << "in queueCallback" << std::endl;
+    PacketCraft::NetfilterCallbackData callbackData = *(PacketCraft::NetfilterCallbackData*)data;
 
     nfqnl_msg_packet_hdr* ph{nullptr};
     nlattr* attr[NFQA_MAX + 1]{};
@@ -84,13 +84,15 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
         return MNL_CB_ERROR;
     }
 
-    uint32_t af{0};
+    uint32_t af{};
     if(ntohs(ph->hw_protocol) == ETH_P_IP)
         af = AF_INET;
     else if(ntohs(ph->hw_protocol) == ETH_P_IPV6)
         af = AF_INET6;
-    else if(ntohs(ph->hw_protocol) == ETH_P_ARP)
-        af = AF_INET;
+    else
+    {
+        // do something?
+    }
 
     pkt_buff* pkBuff = pktb_alloc(af, payload, plen, 4'096);
     if(pkBuff == nullptr)
@@ -113,16 +115,64 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
     }
 
     PacketCraft::Packet packet;
+    uint32_t verdict = NF_ACCEPT;
+
+    // if PacketCraft::Packet doesn't support the received packet, we will just accept it and return error
     if(packet.ProcessReceivedPacket(pkData, 0, proto) == APPLICATION_ERROR)
     {
-        LOG_ERROR(APPLICATION_ERROR, "ProcessReceivedPacket() error!");
-    }
-    if(packet.Print() == APPLICATION_ERROR)
-    {
-        LOG_ERROR(APPLICATION_ERROR, "Print() error!");
+        if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, NF_ACCEPT) == APPLICATION_ERROR)
+        {
+            LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
+            return MNL_CB_ERROR;
+        }
+        LOG_ERROR(APPLICATION_ERROR, "PacketCraft::ProcessReceivedPacket() error!");
+        return MNL_CB_ERROR;
     }
     
-    if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), (mnl_socket*)data, pkBuff) == APPLICATION_ERROR)
+    if(callbackData.filterPacketFunc != nullptr)
+    {
+        if(callbackData.filterPacketFunc(packet))
+        {
+            verdict = callbackData.onFilterSuccess == PacketCraft::FilterPacketPolicy::PC_ACCEPT ? NF_ACCEPT : NF_DROP;      
+            if(callbackData.editPacketFunc != nullptr)
+            {
+                if(callbackData.editPacketFunc(packet) == APPLICATION_ERROR)
+                {
+                    if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
+                    {
+                        LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
+                        return MNL_CB_ERROR;
+                    }
+                    LOG_ERROR(APPLICATION_ERROR, "editPacketFunc() error!");
+                    return MNL_CB_ERROR;
+                }
+                
+                int dataOffset = 0;
+                // check if ethernet header is present (pktb was created in family AF_BRIDGE)
+                uint8_t* macHeader = pktb_mac_header(pkBuff);
+                if(macHeader)
+                    dataOffset = -ETH_HLEN;
+
+                // TODO IMPORTANT: if mac header exists, do we need to add ETH_HLEN to plen??
+                if(pktb_mangle(pkBuff, dataOffset, 0, plen, (char*)packet.GetData(), packet.GetSizeInBytes()) == 0)
+                {
+                    if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
+                    {
+                        LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
+                        return MNL_CB_ERROR;
+                    }
+                    LOG_ERROR(APPLICATION_ERROR, "pktb_mangle() error!");
+                    return MNL_CB_ERROR;
+                }
+            }      
+        }
+        else
+        {
+            verdict = callbackData.onFilterFail == PacketCraft::FilterPacketPolicy::PC_ACCEPT ? NF_ACCEPT : NF_DROP;
+        }
+    }
+  
+    if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
     {
         LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
         return MNL_CB_ERROR;
@@ -131,9 +181,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
     return MNL_CB_OK;
 }
 
-PacketCraft::PacketFilterQueue::PacketFilterQueue(const uint32_t queueNum, const uint32_t ipVersion) :
-    ipVersion(ipVersion),
-    queueNum(queueNum)
+PacketCraft::PacketFilterQueue::PacketFilterQueue()
 {
 
 }
@@ -143,8 +191,17 @@ PacketCraft::PacketFilterQueue::~PacketFilterQueue()
 
 }
 
-int PacketCraft::PacketFilterQueue::Init()
+int PacketCraft::PacketFilterQueue::Init(const uint32_t queueNum, const uint32_t af, 
+    bool (*filterPacketFunc)(const PacketCraft::Packet& packet), int (*editPacketFunc)(PacketCraft::Packet& packet),
+    FilterPacketPolicy onFilterSuccess, FilterPacketPolicy onFilterFail)
 {
+    this->queueNum = queueNum;
+    this->af = af;
+    this->callbackData.filterPacketFunc = filterPacketFunc;
+    this->callbackData.editPacketFunc = editPacketFunc;
+    this->callbackData.onFilterFail = onFilterFail;
+    this->callbackData.onFilterSuccess = onFilterSuccess;
+
     char* buffer{nullptr};
     nlmsghdr* nlh{nullptr};
 
@@ -152,29 +209,29 @@ int PacketCraft::PacketFilterQueue::Init()
     size_t bufferSize = 0xffff + (MNL_SOCKET_BUFFER_SIZE/2);
     int res;
 
-    nl = mnl_socket_open(NETLINK_NETFILTER);
+    callbackData.nl = mnl_socket_open(NETLINK_NETFILTER);
     // nl = mnl_socket_open(NETLINK_ROUTE);
 
-    if(nl == nullptr)
+    if(callbackData.nl == nullptr)
     {
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_open() error");
         return APPLICATION_ERROR;
     }
 
 
-    if(mnl_socket_bind(nl, 0, MNL_SOCKET_AUTOPID) < 0) 
+    if(mnl_socket_bind(callbackData.nl, 0, MNL_SOCKET_AUTOPID) < 0) 
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_bind() error");
         return APPLICATION_ERROR;
     }
 
-    portId = mnl_socket_get_portid(nl);
+    portId = mnl_socket_get_portid(callbackData.nl);
 
     buffer = (char*)malloc(bufferSize);
     if(!buffer) 
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         LOG_ERROR(APPLICATION_ERROR, "malloc() error");
         return APPLICATION_ERROR;
     }
@@ -182,17 +239,17 @@ int PacketCraft::PacketFilterQueue::Init()
     nlh = nfq_nlmsg_put(buffer, NFQNL_MSG_CONFIG, queueNum);
     if(nlh == nullptr)
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         free(buffer);
         LOG_ERROR(APPLICATION_ERROR, "nfq_nlmsg_put() error");
         return APPLICATION_ERROR;
     }
 
-    nfq_nlmsg_cfg_put_cmd(nlh, AF_INET, NFQNL_CFG_CMD_BIND);
+    nfq_nlmsg_cfg_put_cmd(nlh, this->af, NFQNL_CFG_CMD_BIND);
 
-    if(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0) 
+    if(mnl_socket_sendto(callbackData.nl, nlh, nlh->nlmsg_len) < 0) 
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         free(buffer);
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_sendto() error");
         return APPLICATION_ERROR;
@@ -201,7 +258,7 @@ int PacketCraft::PacketFilterQueue::Init()
     nlh = nfq_nlmsg_put(buffer, NFQNL_MSG_CONFIG, queueNum);
     if(nlh == nullptr)
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         free(buffer);
         LOG_ERROR(APPLICATION_ERROR, "nfq_nlmsg_put() error");
         return APPLICATION_ERROR;
@@ -211,9 +268,9 @@ int PacketCraft::PacketFilterQueue::Init()
     mnl_attr_put_u32(nlh, NFQA_CFG_FLAGS, htonl(NFQA_CFG_F_GSO));
     mnl_attr_put_u32(nlh, NFQA_CFG_MASK, htonl(NFQA_CFG_F_GSO));
 
-    if(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0) 
+    if(mnl_socket_sendto(callbackData.nl, nlh, nlh->nlmsg_len) < 0) 
     {
-        mnl_socket_close(nl);
+        mnl_socket_close(callbackData.nl);
         free(buffer);
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_sendto() error");
         return APPLICATION_ERROR;
@@ -224,15 +281,28 @@ int PacketCraft::PacketFilterQueue::Init()
     * in this information, so turn it off.
     */
     res = 1;
-    mnl_socket_setsockopt(nl, NETLINK_NO_ENOBUFS, &res, sizeof(int));
+    mnl_socket_setsockopt(callbackData.nl, NETLINK_NO_ENOBUFS, &res, sizeof(int));
 
+    if(Queue(callbackData.nl, buffer, bufferSize) == APPLICATION_ERROR)
+    {
+        mnl_socket_close(callbackData.nl);
+        free(buffer);
+        LOG_ERROR(APPLICATION_ERROR, "PacketCraft::PacketFilterQueue::Queue() error!");
+        return APPLICATION_ERROR;
+    }
+
+    mnl_socket_close(callbackData.nl);
+    free(buffer);
+    return NO_ERROR;
+}
+
+int PacketCraft::PacketFilterQueue::Queue(mnl_socket* nl, char* packetBuffer, size_t packetBufferSize)
+{
     pollfd pollFds[2]{-1, -1};
     pollFds[0].fd = 0;
     pollFds[0].events = POLLIN;
     pollFds[1].fd = mnl_socket_get_fd(nl);
     pollFds[1].events = POLLIN;
-
-    std::cout << "mnl socket created. polling..." << std::endl;
 
     for(;;)
     {
@@ -240,28 +310,21 @@ int PacketCraft::PacketFilterQueue::Init()
 
         if(nEvents == -1)
         {
-            mnl_socket_close(nl);
-            free(buffer);
             LOG_ERROR(APPLICATION_ERROR, "poll() error");
             return APPLICATION_ERROR;
         }
         else if(pollFds[1].revents & POLLIN) // we have a packet in the queue
         {
-            std::cout << "packet in queue" << std::endl;
-            res = mnl_socket_recvfrom(nl, buffer, bufferSize);
+            int res = mnl_socket_recvfrom(nl, packetBuffer, packetBufferSize);
             if (res == -1) 
             {
-                mnl_socket_close(nl);
-                free(buffer);
                 LOG_ERROR(APPLICATION_ERROR, "mnl_socket_recvfrom() error");
                 return APPLICATION_ERROR;
             }
             
-            res = mnl_cb_run(buffer, res, 0, portId, queueCallback, nl);
+            res = mnl_cb_run(packetBuffer, res, 0, portId, queueCallback, &callbackData);
             if (res < 0)
             {
-                mnl_socket_close(nl);
-                free(buffer);
                 LOG_ERROR(APPLICATION_ERROR, "mnl_cb_run() error");
                 return APPLICATION_ERROR;
             }
@@ -272,15 +335,10 @@ int PacketCraft::PacketFilterQueue::Init()
         }
         else
         {
-            mnl_socket_close(nl);
-            free(buffer);
             LOG_ERROR(APPLICATION_ERROR, "unknown poll() error!");
             return APPLICATION_ERROR;
         }
     }
 
-
-    mnl_socket_close(nl);
-    free(buffer);
     return NO_ERROR;
 }

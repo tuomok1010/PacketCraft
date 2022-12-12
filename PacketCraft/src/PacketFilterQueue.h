@@ -18,23 +18,42 @@ extern "C"
 
 namespace PacketCraft
 {
+    enum FilterPacketPolicy
+    {
+        PC_DROP,
+        PC_ACCEPT
+    };
+
+    struct NetfilterCallbackData
+    {
+        bool (*filterPacketFunc)(const PacketCraft::Packet& packet);
+        int (*editPacketFunc)(PacketCraft::Packet& packet);
+        FilterPacketPolicy onFilterSuccess;
+        FilterPacketPolicy onFilterFail;
+        mnl_socket* nl;
+    };
+
     class PacketFilterQueue
     {
         public:
-        PacketFilterQueue(const uint32_t queueNum, const uint32_t ipVersion);
+        PacketFilterQueue();
         ~PacketFilterQueue();
 
-        int Init();
-        int Queue();
+        int Init(const uint32_t queueNum, const uint32_t af, 
+            bool (*filterPacketFunc)(const PacketCraft::Packet& packet) = nullptr, int (*editPacketFunc)(PacketCraft::Packet& packet) = nullptr, 
+            FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT);
+
+        int Queue(mnl_socket* nl, char* packetBuffer, size_t packetBufferSize);
 
         private:
-        uint32_t ipVersion;
+        uint32_t af; // address family (AF_INET/AF_INET6)
         uint32_t queueNum;
         uint32_t portId;
 
         nfq_handle* handler;
         nfq_q_handle* queue;
-        mnl_socket *nl;
+
+        NetfilterCallbackData callbackData;
     };
 }
 
