@@ -16,6 +16,9 @@ extern "C"
 #include <linux/netfilter/nfnetlink_conntrack.h>
 }
 
+typedef bool32 (*FilterPacketFunc)(const PacketCraft::Packet& packet);
+typedef uint32_t (*EditPacketFunc)(PacketCraft::Packet& packet);
+
 namespace PacketCraft
 {
     enum FilterPacketPolicy
@@ -26,8 +29,9 @@ namespace PacketCraft
 
     struct NetfilterCallbackData
     {
-        bool (*filterPacketFunc)(const PacketCraft::Packet& packet);
-        int (*editPacketFunc)(PacketCraft::Packet& packet);
+        Packet* packet;
+        FilterPacketFunc filterPacketFunc;
+        EditPacketFunc editPacketFunc;
         FilterPacketPolicy onFilterSuccess;
         FilterPacketPolicy onFilterFail;
         mnl_socket* nl;
@@ -36,12 +40,11 @@ namespace PacketCraft
     class PacketFilterQueue
     {
         public:
-        PacketFilterQueue();
+        PacketFilterQueue(PacketCraft::Packet& packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc = nullptr, 
+            EditPacketFunc editPacketFunc = nullptr, FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT);
         ~PacketFilterQueue();
 
-        int Init(const uint32_t queueNum, const uint32_t af, 
-            bool (*filterPacketFunc)(const PacketCraft::Packet& packet) = nullptr, int (*editPacketFunc)(PacketCraft::Packet& packet) = nullptr, 
-            FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT);
+        int Init();
 
         int Queue(mnl_socket* nl, char* packetBuffer, size_t packetBufferSize);
 

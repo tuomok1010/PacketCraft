@@ -18,6 +18,11 @@
 
     if(pktb_mangled(pkBuff))
     {
+        std::cout << "packet was mangled" << std::endl;
+
+        uint8_t* networkHeader = pktb_network_header(pkBuff);
+        uint8_t* transportHeader = pktb_transport_header(pkBuff);
+        PacketCraft::PrintIPv4Layer((IPv4Header*)networkHeader);
         nfq_nlmsg_verdict_put_pkt(nlh, pktb_data(pkBuff), pktb_len(pkBuff));
     }
 
@@ -117,7 +122,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
     PacketCraft::Packet packet;
     uint32_t verdict = NF_ACCEPT;
 
-    // if PacketCraft::Packet doesn't support the received packet, we will just accept it and return error
+    // if PacketCraft::Packet doesn't support the received packet, we will just accept it and return no error
     if(packet.ProcessReceivedPacket(pkData, 0, proto) == APPLICATION_ERROR)
     {
         if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, NF_ACCEPT) == APPLICATION_ERROR)
@@ -126,12 +131,12 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
             return MNL_CB_ERROR;
         }
         LOG_ERROR(APPLICATION_ERROR, "PacketCraft::ProcessReceivedPacket() error!");
-        return MNL_CB_ERROR;
+        return MNL_CB_OK;
     }
     
     if(callbackData.filterPacketFunc != nullptr)
     {
-        if(callbackData.filterPacketFunc(packet))
+        if(callbackData.filterPacketFunc(packet) == TRUE)
         {
             verdict = callbackData.onFilterSuccess == PacketCraft::FilterPacketPolicy::PC_ACCEPT ? NF_ACCEPT : NF_DROP;      
             if(callbackData.editPacketFunc != nullptr)
@@ -153,6 +158,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
                 if(macHeader)
                     dataOffset = -ETH_HLEN;
 
+                std::cout << "PacketCraft packet size: " << packet.GetSizeInBytes() << " nfq packet size: " << plen << std::endl;
                 // TODO IMPORTANT: if mac header exists, do we need to add ETH_HLEN to plen??
                 if(pktb_mangle(pkBuff, dataOffset, 0, plen, (char*)packet.GetData(), packet.GetSizeInBytes()) == 0)
                 {
@@ -172,6 +178,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
         }
     }
   
+    std::cout << "sending final verdict" << std::endl;
     if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
     {
         LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
@@ -181,9 +188,16 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
     return MNL_CB_OK;
 }
 
-PacketCraft::PacketFilterQueue::PacketFilterQueue()
+PacketCraft::PacketFilterQueue::PacketFilterQueue(PacketCraft::Packet& packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc, 
+    EditPacketFunc editPacketFunc, FilterPacketPolicy onFilterSuccess, FilterPacketPolicy onFilterFail)
 {
-
+    this->queueNum = queueNum;
+    this->af = af;
+    this->callbackData.packet = &packet;
+    this->callbackData.editPacketFunc = editPacketFunc;
+    this->callbackData.filterPacketFunc = filterPacketFunc;
+    this->callbackData.onFilterSuccess = onFilterSuccess;
+    this->callbackData.onFilterFail = onFilterFail;
 }
 
 PacketCraft::PacketFilterQueue::~PacketFilterQueue()
@@ -191,17 +205,8 @@ PacketCraft::PacketFilterQueue::~PacketFilterQueue()
 
 }
 
-int PacketCraft::PacketFilterQueue::Init(const uint32_t queueNum, const uint32_t af, 
-    bool (*filterPacketFunc)(const PacketCraft::Packet& packet), int (*editPacketFunc)(PacketCraft::Packet& packet),
-    FilterPacketPolicy onFilterSuccess, FilterPacketPolicy onFilterFail)
+int PacketCraft::PacketFilterQueue::Init()
 {
-    this->queueNum = queueNum;
-    this->af = af;
-    this->callbackData.filterPacketFunc = filterPacketFunc;
-    this->callbackData.editPacketFunc = editPacketFunc;
-    this->callbackData.onFilterFail = onFilterFail;
-    this->callbackData.onFilterSuccess = onFilterSuccess;
-
     char* buffer{nullptr};
     nlmsghdr* nlh{nullptr};
 
