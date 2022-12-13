@@ -265,7 +265,7 @@ void PacketCraft::Packet::CalculateChecksums()
             {
                 IPv4Header* ipv4Header = (IPv4Header*)GetLayerStart(i);
                 ipv4Header->ip_sum = 0;
-                ipv4Header->ip_sum = CalculateChecksum(ipv4Header, ipv4Header->ip_hl * 32 / 8);
+                ipv4Header->ip_sum = CalculateChecksum(ipv4Header, ipv4Header->ip_hl * 4);
                 break;
             }
             case PC_ICMPV4:

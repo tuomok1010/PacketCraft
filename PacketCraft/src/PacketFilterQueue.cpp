@@ -18,11 +18,21 @@
 
     if(pktb_mangled(pkBuff))
     {
-        std::cout << "packet was mangled" << std::endl;
-
+        std::cout << "packet after mangling:" << std::endl;
         uint8_t* networkHeader = pktb_network_header(pkBuff);
         uint8_t* transportHeader = pktb_transport_header(pkBuff);
-        PacketCraft::PrintIPv4Layer((IPv4Header*)networkHeader);
+        if(networkHeader)
+        {
+            PacketCraft::PrintIPv4Layer((IPv4Header*)networkHeader);
+            if(transportHeader)
+            {
+                if(((IPv4Header*)networkHeader)->ip_p == IPPROTO_TCP)
+                    PacketCraft::PrintTCPLayer((TCPHeader*)transportHeader);
+                else if(((IPv4Header*)networkHeader)->ip_p == IPPROTO_UDP)
+                    PacketCraft::PrintUDPLayer((UDPHeader*)transportHeader);
+            }
+        }
+            
         nfq_nlmsg_verdict_put_pkt(nlh, pktb_data(pkBuff), pktb_len(pkBuff));
     }
 
@@ -151,10 +161,25 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
                     LOG_ERROR(APPLICATION_ERROR, "editPacketFunc() error!");
                     return MNL_CB_ERROR;
                 }
-                
+
+                std::cout << "packet before mangling:" << std::endl;
+                uint8_t* networkHeader = pktb_network_header(pkBuff);
+                uint8_t* transportHeader = pktb_transport_header(pkBuff);
+
+                if(networkHeader)
+                {
+                    PacketCraft::PrintIPv4Layer((IPv4Header*)networkHeader);
+                    if(transportHeader)
+                    {
+                        if(((IPv4Header*)networkHeader)->ip_p == IPPROTO_TCP)
+                            PacketCraft::PrintTCPLayer((TCPHeader*)transportHeader);
+                        else if(((IPv4Header*)networkHeader)->ip_p == IPPROTO_UDP)
+                            PacketCraft::PrintUDPLayer((UDPHeader*)transportHeader);
+                    }
+                }
+
                 int dataOffset = 0;
-                // check if ethernet header is present (pktb was created in family AF_BRIDGE)
-                uint8_t* macHeader = pktb_mac_header(pkBuff);
+                uint8_t* macHeader = pktb_mac_header(pkBuff); // check if ethernet header is present (pktb was created in family AF_BRIDGE)
                 if(macHeader)
                     dataOffset = -ETH_HLEN;
 
