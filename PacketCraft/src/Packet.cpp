@@ -263,6 +263,7 @@ void PacketCraft::Packet::CalculateChecksums()
         {
             case PC_IPV4:
             {
+                std::cout << "calculating ipv4 checksum" << std::endl;
                 IPv4Header* ipv4Header = (IPv4Header*)GetLayerStart(i);
                 ipv4Header->ip_sum = 0;
                 ipv4Header->ip_sum = CalculateChecksum(ipv4Header, ipv4Header->ip_hl * 4);
@@ -270,6 +271,7 @@ void PacketCraft::Packet::CalculateChecksums()
             }
             case PC_ICMPV4:
             {
+                std::cout << "calculating icmpv4 checksum" << std::endl;
                 ICMPv4Header* icmpv4Header = (ICMPv4Header*)GetLayerStart(i);
                 icmpv4Header->checksum = 0;
                 icmpv4Header->checksum = CalculateChecksum(icmpv4Header, GetLayerSize(i));
@@ -277,6 +279,7 @@ void PacketCraft::Packet::CalculateChecksums()
             }
             case PC_ICMPV6:
             {
+                std::cout << "calculating icmpv6 checksum" << std::endl;
                 IPv6Header* ipv6Header = (IPv6Header*)FindLayerByType(PC_IPV6);
                 ICMPv6Header* icmpv6Header = (ICMPv6Header*)GetLayerStart(i);
                 icmpv6Header->icmp6_cksum = 0;
@@ -307,6 +310,7 @@ void PacketCraft::Packet::CalculateChecksums()
 
                 if(ipv4Header != nullptr)
                 {
+                    std::cout << "calculating udpv4 checksum" << std::endl;
                     UDPv4PseudoHeader pseudoHeader;
                     memcpy(&pseudoHeader.ip_src.s_addr, &ipv4Header->ip_src.s_addr, IPV4_ALEN);
                     memcpy(&pseudoHeader.ip_dst.s_addr, &ipv4Header->ip_dst.s_addr, IPV4_ALEN);
@@ -333,6 +337,7 @@ void PacketCraft::Packet::CalculateChecksums()
                 }
                 else if(ipv6Header != nullptr)
                 {
+                    std::cout << "calculating udpv6 checksum" << std::endl;
                     UDPv6PseudoHeader pseudoHeader;
                     memcpy(pseudoHeader.ip6_src.__in6_u.__u6_addr8, ipv6Header->ip6_src.__in6_u.__u6_addr8, IPV6_ALEN);
                     memcpy(pseudoHeader.ip6_dst.__in6_u.__u6_addr8, ipv6Header->ip6_dst.__in6_u.__u6_addr8, IPV6_ALEN);
@@ -368,6 +373,7 @@ void PacketCraft::Packet::CalculateChecksums()
 
                 if(ipv4Header != nullptr)
                 {
+                    std::cout << "calculating tcpv4 checksum" << std::endl;
                     TCPv4PseudoHeader pseudoHeader;
                     memcpy(&pseudoHeader.ip_src.s_addr, &ipv4Header->ip_src.s_addr, IPV4_ALEN);
                     memcpy(&pseudoHeader.ip_dst.s_addr, &ipv4Header->ip_dst.s_addr, IPV4_ALEN);
@@ -390,6 +396,7 @@ void PacketCraft::Packet::CalculateChecksums()
                 }
                 else if(ipv6Header != nullptr)
                 {
+                    std::cout << "calculating tcpv6 checksum" << std::endl;
                     TCPv6PseudoHeader pseudoHeader;
                     memcpy(pseudoHeader.ip6_src.__in6_u.__u6_addr8, ipv6Header->ip6_src.__in6_u.__u6_addr8, IPV6_ALEN);
                     memcpy(pseudoHeader.ip6_dst.__in6_u.__u6_addr8, ipv6Header->ip6_dst.__in6_u.__u6_addr8, IPV6_ALEN);
@@ -414,6 +421,8 @@ void PacketCraft::Packet::CalculateChecksums()
             }
         }
     }
+
+    std::cout << "checksums calculated" << std::endl;
 }
 
 int PacketCraft::Packet::Print(bool32 printToFile, const char* fullFilePath) const

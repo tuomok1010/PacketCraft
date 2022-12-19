@@ -16,7 +16,17 @@ extern "C"
 #include <linux/netfilter/nfnetlink_conntrack.h>
 }
 
+/*
+    a user defined callback function that returns either true or false. user can filter for packets
+    and if a packet matches the filter conditions (returns true) the packet will go to the EditPacketFunc
+    where it can be edited.
+*/
 typedef bool32 (*FilterPacketFunc)(const PacketCraft::Packet& packet);
+
+/*
+    a user defined callback function where packets that have succesfully gone through the FilterPacketFunc can
+    be edited.
+*/
 typedef uint32_t (*EditPacketFunc)(PacketCraft::Packet& packet);
 
 namespace PacketCraft
@@ -40,15 +50,15 @@ namespace PacketCraft
     class PacketFilterQueue
     {
         public:
-        PacketFilterQueue(PacketCraft::Packet& packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc = nullptr, 
+        PacketFilterQueue(PacketCraft::Packet* packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc = nullptr, 
             EditPacketFunc editPacketFunc = nullptr, FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT);
         ~PacketFilterQueue();
 
-        int Init();
-
-        int Queue(mnl_socket* nl, char* packetBuffer, size_t packetBufferSize);
+        int Run();
 
         private:
+        int Queue(mnl_socket* nl, char* packetBuffer, size_t packetBufferSize);
+
         uint32_t af; // address family (AF_INET/AF_INET6)
         uint32_t queueNum;
         uint32_t portId;
