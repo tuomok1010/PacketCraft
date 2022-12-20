@@ -21,13 +21,13 @@ extern "C"
     and if a packet matches the filter conditions (returns true) the packet will go to the EditPacketFunc
     where it can be edited.
 */
-typedef bool32 (*FilterPacketFunc)(const PacketCraft::Packet& packet);
+typedef bool32 (*FilterPacketFunc)(const PacketCraft::Packet& packet, void* data);
 
 /*
     a user defined callback function where packets that have succesfully gone through the FilterPacketFunc can
     be edited.
 */
-typedef uint32_t (*EditPacketFunc)(PacketCraft::Packet& packet);
+typedef uint32_t (*EditPacketFunc)(PacketCraft::Packet& packet, void* data);
 
 namespace PacketCraft
 {
@@ -45,15 +45,20 @@ namespace PacketCraft
         FilterPacketPolicy onFilterSuccess;
         FilterPacketPolicy onFilterFail;
         mnl_socket* nl;
+        void* filterPacketFuncData;
+        void* editPacketFuncData;
+
     };
 
     class PacketFilterQueue
     {
-        public:
-        PacketFilterQueue(PacketCraft::Packet* packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc = nullptr, 
-            EditPacketFunc editPacketFunc = nullptr, FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT);
-        ~PacketFilterQueue();
 
+        public:
+
+        PacketFilterQueue(PacketCraft::Packet* packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc = nullptr, 
+            EditPacketFunc editPacketFunc = nullptr, FilterPacketPolicy onFilterSuccess = PC_ACCEPT, FilterPacketPolicy onFilterFail = PC_ACCEPT,
+            void* filterPacketFuncData = nullptr, void* editPacketFuncData = nullptr);
+        ~PacketFilterQueue();
         int Run();
 
         private:
@@ -62,10 +67,8 @@ namespace PacketCraft
         uint32_t af; // address family (AF_INET/AF_INET6)
         uint32_t queueNum;
         uint32_t portId;
-
         nfq_handle* handler;
         nfq_q_handle* queue;
-
         NetfilterCallbackData callbackData;
     };
 }

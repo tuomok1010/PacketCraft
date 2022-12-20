@@ -41,12 +41,11 @@
 
     /* example to set the connmark. First, start NFQA_CT section: */
     nest = mnl_attr_nest_start(nlh, NFQA_CT);
-
     /* then, add the connmark attribute: */
     mnl_attr_put_u32(nlh, CTA_MARK, htonl(42));
     /* more conntrack attributes, e.g. CTA_LABELS could be set here */
-
     /* end conntrack section */
+
     mnl_attr_nest_end(nlh, nest);
 
     if(mnl_socket_sendto(nl, nlh, nlh->nlmsg_len) < 0) 
@@ -61,7 +60,6 @@
 static int queueCallback(const nlmsghdr *nlh, void *data)
 {
     PacketCraft::NetfilterCallbackData callbackData = *(PacketCraft::NetfilterCallbackData*)data;
-
     nfqnl_msg_packet_hdr* ph{nullptr};
     nlattr* attr[NFQA_MAX + 1]{};
     nfgenmsg*nfg{nullptr};
@@ -94,6 +92,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
 
     uint16_t plen = mnl_attr_get_payload_len(attr[NFQA_PAYLOAD]);
     uint8_t* payload = (uint8_t*)mnl_attr_get_payload(attr[NFQA_PAYLOAD]);
+
     if(payload == nullptr)
     {
         LOG_ERROR(APPLICATION_ERROR, "mnl_attr_get_payload() NFQA_PAYLOAD error");
@@ -116,7 +115,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
         LOG_ERROR(APPLICATION_ERROR, "pktb_alloc() error");
         return MNL_CB_ERROR;
     }
-    
+
     printf("packet received (id=%u hw=0x%04x hook=%u, payload len %u\n",
             ntohl(ph->packet_id), ntohs(ph->hw_protocol), ph->hook, plen);
 
@@ -131,7 +130,6 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
     }
 
     uint32_t verdict = NF_ACCEPT;
-
     // if PacketCraft::Packet doesn't support the received packet, we will just accept it and return no error
     if(callbackData.packet->ProcessReceivedPacket(pkData, 0, proto) == APPLICATION_ERROR)
     {
@@ -141,19 +139,20 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
             LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
             return MNL_CB_ERROR;
         }
+
         callbackData.packet->ResetPacketBuffer();
         LOG_ERROR(APPLICATION_ERROR, "PacketCraft::ProcessReceivedPacket() error!");
         return MNL_CB_OK;
     }
-    
+
     if(callbackData.filterPacketFunc != nullptr)
     {
-        if(callbackData.filterPacketFunc(*callbackData.packet) == TRUE)
+        if(callbackData.filterPacketFunc(*callbackData.packet, callbackData.filterPacketFuncData) == TRUE)
         {
             verdict = callbackData.onFilterSuccess == PacketCraft::FilterPacketPolicy::PC_ACCEPT ? NF_ACCEPT : NF_DROP;      
             if(callbackData.editPacketFunc != nullptr)
             {
-                if(callbackData.editPacketFunc(*callbackData.packet) == APPLICATION_ERROR)
+                if(callbackData.editPacketFunc(*callbackData.packet, callbackData.editPacketFuncData) == APPLICATION_ERROR)
                 {
                     if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
                     {
@@ -161,6 +160,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
                         LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
                         return MNL_CB_ERROR;
                     }
+
                     callbackData.packet->ResetPacketBuffer();
                     LOG_ERROR(APPLICATION_ERROR, "editPacketFunc() error!");
                     return MNL_CB_ERROR;
@@ -197,6 +197,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
                         LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
                         return MNL_CB_ERROR;
                     }
+
                     callbackData.packet->ResetPacketBuffer();
                     LOG_ERROR(APPLICATION_ERROR, "pktb_mangle() error!");
                     return MNL_CB_ERROR;
@@ -208,19 +209,20 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
             verdict = callbackData.onFilterFail == PacketCraft::FilterPacketPolicy::PC_ACCEPT ? NF_ACCEPT : NF_DROP;
         }
     }
-  
+
     if(nfq_send_verdict(ntohs(nfg->res_id), ntohl(ph->packet_id), callbackData.nl, pkBuff, verdict) == APPLICATION_ERROR)
     {
         callbackData.packet->ResetPacketBuffer();
         LOG_ERROR(APPLICATION_ERROR, "nfq_send_verdict() error");
         return MNL_CB_ERROR;
     }
+
     callbackData.packet->ResetPacketBuffer();
     return MNL_CB_OK;
 }
 
-PacketCraft::PacketFilterQueue::PacketFilterQueue(PacketCraft::Packet* packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc, 
-    EditPacketFunc editPacketFunc, FilterPacketPolicy onFilterSuccess, FilterPacketPolicy onFilterFail)
+PacketCraft::PacketFilterQueue::PacketFilterQueue(PacketCraft::Packet* packet, const uint32_t queueNum, const uint32_t af, FilterPacketFunc filterPacketFunc,
+    EditPacketFunc editPacketFunc, FilterPacketPolicy onFilterSuccess, FilterPacketPolicy onFilterFail, void* filterPacketFuncData, void* editPacketFuncData)
 {
     this->queueNum = queueNum;
     this->af = af;
@@ -229,6 +231,8 @@ PacketCraft::PacketFilterQueue::PacketFilterQueue(PacketCraft::Packet* packet, c
     this->callbackData.filterPacketFunc = filterPacketFunc;
     this->callbackData.onFilterSuccess = onFilterSuccess;
     this->callbackData.onFilterFail = onFilterFail;
+    this->callbackData.editPacketFuncData = editPacketFuncData;
+    this->callbackData.filterPacketFuncData = filterPacketFuncData;
 }
 
 PacketCraft::PacketFilterQueue::~PacketFilterQueue()
@@ -247,9 +251,7 @@ int PacketCraft::PacketFilterQueue::Run()
     /* largest possible packet payload, plus netlink data overhead: */
     size_t bufferSize = 0xffff + (MNL_SOCKET_BUFFER_SIZE/2);
     int res;
-
     callbackData.nl = mnl_socket_open(NETLINK_NETFILTER);
-    // nl = mnl_socket_open(NETLINK_ROUTE);
 
     if(callbackData.nl == nullptr)
     {
@@ -257,8 +259,7 @@ int PacketCraft::PacketFilterQueue::Run()
         return APPLICATION_ERROR;
     }
 
-
-    if(mnl_socket_bind(callbackData.nl, 0, MNL_SOCKET_AUTOPID) < 0) 
+    if(mnl_socket_bind(callbackData.nl, 0, MNL_SOCKET_AUTOPID) < 0)
     {
         mnl_socket_close(callbackData.nl);
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_bind() error");
@@ -266,8 +267,8 @@ int PacketCraft::PacketFilterQueue::Run()
     }
 
     portId = mnl_socket_get_portid(callbackData.nl);
-
     buffer = (char*)malloc(bufferSize);
+
     if(!buffer) 
     {
         mnl_socket_close(callbackData.nl);
@@ -276,6 +277,7 @@ int PacketCraft::PacketFilterQueue::Run()
     }
 
     nlh = nfq_nlmsg_put(buffer, NFQNL_MSG_CONFIG, queueNum);
+
     if(nlh == nullptr)
     {
         mnl_socket_close(callbackData.nl);
@@ -293,7 +295,7 @@ int PacketCraft::PacketFilterQueue::Run()
         LOG_ERROR(APPLICATION_ERROR, "mnl_socket_sendto() error");
         return APPLICATION_ERROR;
     }
- 
+
     nlh = nfq_nlmsg_put(buffer, NFQNL_MSG_CONFIG, queueNum);
     if(nlh == nullptr)
     {
@@ -346,12 +348,12 @@ int PacketCraft::PacketFilterQueue::Queue(mnl_socket* nl, char* packetBuffer, si
     for(;;)
     {
         int nEvents = poll(pollFds, sizeof(pollFds) / sizeof(pollFds[0]), -1);
-
         if(nEvents == -1)
         {
             LOG_ERROR(APPLICATION_ERROR, "poll() error");
             return APPLICATION_ERROR;
         }
+
         else if(pollFds[1].revents & POLLIN) // we have a packet in the queue
         {
             int res = mnl_socket_recvfrom(nl, packetBuffer, packetBufferSize);
@@ -360,7 +362,7 @@ int PacketCraft::PacketFilterQueue::Queue(mnl_socket* nl, char* packetBuffer, si
                 LOG_ERROR(APPLICATION_ERROR, "mnl_socket_recvfrom() error");
                 return APPLICATION_ERROR;
             }
-            
+
             res = mnl_cb_run(packetBuffer, res, 0, portId, queueCallback, &callbackData);
             if (res < 0)
             {
