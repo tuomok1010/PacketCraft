@@ -255,6 +255,17 @@ void* PacketCraft::Packet::FindLayerByType(const uint32_t layerType) const
     return nullptr;
 }
 
+int32_t PacketCraft::Packet::FindIndexByType(const uint32_t layerType) const
+{
+    for(unsigned int i = 0; i < nLayers; ++i)
+    {
+        if(layerInfos[i].type == layerType)
+            return i;
+    }
+
+    return -1;
+}
+
 void PacketCraft::Packet::CalculateChecksums()
 {
     for(unsigned int i = 0; i < nLayers; ++i)
@@ -780,16 +791,16 @@ int PacketCraft::Packet::ProcessReceivedPacket(uint8_t* packet, int layerSize, u
         case PC_IPV4:
         {
             IPv4Header* ipHeader = (IPv4Header*)packet;
-            AddLayer(PC_IPV4, ipHeader->ip_hl * 32 / 8);
-            memcpy(GetLayerStart(nLayers - 1), packet, ipHeader->ip_hl * 32 / 8);
+            AddLayer(PC_IPV4, ipHeader->ip_hl * 4);
+            memcpy(GetLayerStart(nLayers - 1), packet, ipHeader->ip_hl * 4);
             protocol = NetworkProtoToPacketCraftProto(ipHeader->ip_p);
 
             // this is the next layer size (header + data)
-            layerSize = ntohs(ipHeader->ip_len) - (ipHeader->ip_hl * 32 / 8);
+            layerSize = ntohs(ipHeader->ip_len) - (ipHeader->ip_hl * 4);
             if(layerSize <= 0)
                 return NO_ERROR;
 
-            packet += (uint32_t)ipHeader->ip_hl * 32 / 8;
+            packet += (uint32_t)ipHeader->ip_hl * 4;
             break;
         }
         case PC_IPV6: // TODO: need to support extension headers!

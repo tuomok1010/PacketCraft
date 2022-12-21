@@ -63,6 +63,9 @@ namespace PacketCraft
         // parses data in host byte order, and the domain names in a clear string format, for example: www.google.com
         int Parse(DNSHeader& dnsHeader);
 
+        // converts the data in header, questionsArray and answersArray into a proper dns layer in network byte order
+        DNSHeader* Convert();
+
         ParsedDNSHeader header;
         DNSQuestion* questionsArray;
         DNSAnswer* answersArray;

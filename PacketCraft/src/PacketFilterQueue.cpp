@@ -116,8 +116,8 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
         return MNL_CB_ERROR;
     }
 
-    printf("packet received (id=%u hw=0x%04x hook=%u, payload len %u\n",
-            ntohl(ph->packet_id), ntohs(ph->hw_protocol), ph->hook, plen);
+    // printf("packet received (id=%u hw=0x%04x hook=%u, payload len %u\n",
+    //         ntohl(ph->packet_id), ntohs(ph->hw_protocol), ph->hook, plen);
 
     uint8_t* pkData = pktb_data(pkBuff);
 
@@ -141,7 +141,7 @@ static int queueCallback(const nlmsghdr *nlh, void *data)
         }
 
         callbackData.packet->ResetPacketBuffer();
-        LOG_ERROR(APPLICATION_ERROR, "PacketCraft::ProcessReceivedPacket() error!");
+        // LOG_ERROR(APPLICATION_ERROR, "PacketCraft::ProcessReceivedPacket() error!");
         return MNL_CB_OK;
     }
 
