@@ -136,3 +136,78 @@ int PacketCraft::DNSParser::Parse(DNSHeader& dnsHeader)
 
     return NO_ERROR;
 }
+
+DNSHeader* PacketCraft::DNSParser::Convert(uint32_t& length)
+{
+    // calculate total DNS length
+    uint32_t len{sizeof(DNSHeader)};
+    char dnsName[FQDN_MAX_STR_LEN]{};
+    for(unsigned int i = 0; i < header.qcount; ++i)
+    {
+        // qName + 0 length label + qType + qClass
+        DomainToDNSName(questionsArray[i].qName, dnsName);
+        len += PacketCraft::GetStrLen(dnsName) + 1 + 4;
+    }
+
+    for(unsigned int i = 0; i < header.ancount; ++i)
+    {
+        // aName + 0 length label + aType + aClass + timeToLive + rLength + rData
+        DomainToDNSName(answersArray[i].aName, dnsName);
+        len += PacketCraft::GetStrLen(answersArray[i].aName) + 1 + 10 + answersArray[i].rLength;
+    }
+    /////
+
+    DNSHeader* dnsHeader = (DNSHeader*)malloc(len);
+    dnsHeader->id = htons(header.id);
+    dnsHeader->rd = header.rd;
+    dnsHeader->tc = header.tc;
+    dnsHeader->aa = header.aa;
+    dnsHeader->opcode = header.opcode;
+    dnsHeader->qr = header.qr;
+    dnsHeader->rcode = header.rcode;
+    dnsHeader->zero = header.zero;
+    dnsHeader->ra = header.ra;
+    dnsHeader->qcount = htons(header.qcount);
+    dnsHeader->ancount = htons(header.ancount);
+    dnsHeader->nscount = htons(header.nscount);
+    dnsHeader->adcount = htons(header.adcount);
+
+    uint8_t* querySection = dnsHeader->querySection;
+
+    // put questions from questionsArray into the querySection
+    for(unsigned int i = 0; i < header.qcount; ++i)
+    {
+        DomainToDNSName(questionsArray[i].qName, dnsName);
+        uint32_t nameLen = PacketCraft::GetStrLen(dnsName) + 1;
+        memcpy(querySection, dnsName, nameLen);
+        querySection += nameLen;
+
+        *(uint16_t*)querySection = htons(questionsArray[i].qType);
+        querySection += 2;
+        *(uint16_t*)querySection = htons(questionsArray[i].qClass);
+        querySection += 2;
+    }
+
+    // put answers from answersArray into the querySection
+    for(unsigned int i = 0; i < header.ancount; ++i)
+    {
+        DomainToDNSName(answersArray[i].aName, dnsName);
+        uint32_t nameLen = PacketCraft::GetStrLen(dnsName) + 1;
+        memcpy(querySection, dnsName, nameLen);
+        querySection += nameLen;
+
+        *(uint16_t*)querySection = htons(answersArray[i].aType);
+        querySection += 2;
+        *(uint16_t*)querySection = htons(answersArray[i].aClass);
+        querySection += 2;
+        *(uint32_t*)querySection = htonl(answersArray[i].timeToLive);
+        querySection += 4;
+        *(uint16_t*)querySection = htons(answersArray[i].rLength);
+        querySection += 2;
+        memcpy(querySection, answersArray[i].rData, answersArray[i].rLength);
+        querySection += answersArray[i].rLength;
+    }
+
+    length = len;
+    return dnsHeader;
+}

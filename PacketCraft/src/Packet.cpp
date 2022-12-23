@@ -266,6 +266,74 @@ int32_t PacketCraft::Packet::FindIndexByType(const uint32_t layerType) const
     return -1;
 }
 
+// TODO: Test
+void PacketCraft::Packet::CalculateLengths()
+{
+    bool32 hasEthLayer{FALSE};
+    uint32_t ipVersion{0};
+
+    int ipv4LayerIndex{-1};
+    int ipv6LayerIndex{-1};
+
+    for(unsigned int i = 0; i < nLayers; ++i)
+    {
+        switch (layerInfos[i].type)
+        {
+            case PC_ETHER_II:
+            {
+                hasEthLayer = TRUE;
+                break;
+            }
+            case PC_IPV4:
+            {
+                IPv4Header* ipv4Header = (IPv4Header*)GetLayerStart(i);
+                if(hasEthLayer == TRUE)
+                    ipv4Header->ip_len = htons(sizeInBytes - ETH_HLEN);
+                else
+                    ipv4Header->ip_len = htons(sizeInBytes);
+
+                ipVersion = 4;
+                ipv4LayerIndex = i;
+                break;
+            }
+            case PC_IPV6:
+            {
+                IPv6Header* ipv6Header = (IPv6Header*)GetLayerStart(i);
+                if(hasEthLayer == TRUE)
+                    ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_plen = htons(sizeInBytes - ETH_HLEN);
+                else
+                    ipv6Header->ip6_ctlun.ip6_un1.ip6_un1_plen = htons(sizeInBytes);
+
+                ipVersion = 6;
+                ipv6LayerIndex = i;
+                break;
+            }
+            case PC_UDP:
+            {
+                UDPHeader* udpHeader = (UDPHeader*)GetLayerStart(i);
+                if(ipVersion == 4)
+                {
+                    if(hasEthLayer == TRUE)
+                    {
+                        IPv4Header* ipv4Header = (IPv4Header*)GetLayerStart(ipv4LayerIndex);
+                        udpHeader->len;
+                    }
+                }
+                else if(ipVersion = 6)
+                {
+
+                }
+                break;
+            }
+            case PC_TCP:
+            {
+
+                break;
+            }
+        }
+    }
+}
+
 void PacketCraft::Packet::CalculateChecksums()
 {
     for(unsigned int i = 0; i < nLayers; ++i)

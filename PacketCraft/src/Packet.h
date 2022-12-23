@@ -37,6 +37,7 @@ namespace PacketCraft
         void ResetPacketBuffer();
         void* FindLayerByType(const uint32_t layerType) const;
         int32_t FindIndexByType(const uint32_t layerType) const;
+        void CalculateLengths();
         void CalculateChecksums();
 
         // if printToFile is true, prints the packet into a txt file in fullFilePath, otherwise prints it in console
